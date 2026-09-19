@@ -1,9 +1,7 @@
 {
   "mcpServers": {
     "missions": {
-      "command": "npm",
-      "args": ["run", "mcp"],
-      "cwd": "/ABSOLUTE/PATH/TO/missions"
+      "url": "https://missions.cv/api/mcp"
     }
   }
 }

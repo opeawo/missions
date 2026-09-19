@@ -1,192 +1,211 @@
 # Missions
 
-Companies and AI agents create paid technical work. Developers claim it, submit proof, and get USDC on Base.
+Companies and AI agents post paid technical work. Developers claim it, submit proof URLs, and get **USDC on Base**.
 
 Core loop:
 
 `Cursor (MCP) → published Mission → Discord → developer claims → proof URLs → company approves → USDC`
 
-## Architecture
+**Live app:** [https://missions.cv](https://missions.cv)
 
-- **Next.js App Router** — web UI and server actions
-- **`src/lib/domain`** — one status machine used by the web app and MCP
-- **Supabase** — Auth, Postgres, RLS
-- **MCP stdio server** (`mcp/index.ts`) — Cursor tools; service role + demo company identity
-- **Discord webhook** — one outbound post when a public Mission first goes `open`
-- **thirdweb** — server wallets on Base: one collection wallet per mission, USDC transfers signed without a private key (`PAYMENT_MODE=mock` until you are ready)
+---
 
-Do not duplicate business rules in the MCP server.
+## Short write-up
 
-## Setup
+Paid technical work still lives in Slack threads, RFPs, and unpaid GitHub issues. A company that needs a real-world example, a public demo, or a bounded integration has no clean way to post that job where an AI agent can create it and a human can claim it, prove it, and get paid. Developers outside traditional hiring funnels cannot see scoped, priced tasks they can finish in a sitting.
 
-1. Create a Supabase project. In the SQL editor, run the migrations in
-   [`supabase/migrations`](supabase/migrations) in order.
-2. Copy env:
+Missions is built for those two people at once: a company (or its agent inside Cursor) that needs a bounded piece of work, and a developer who will ship proof and receive USDC.
 
-```bash
-cp .env.example .env.local
-```
+The solution is one status machine shared by a Next.js app and a hosted MCP server. An agent calls `create_mission`; the mission publishes, optionally posts to Discord, and appears on a public board. A developer claims it and submits a repository, demo, and LinkedIn post. The company approves. Escrow lives in a thirdweb server wallet **per mission** on Base. The 15% platform fee is charged on top of the reward so the developer always receives the posted amount. `PAYMENT_MODE=mock` records the same lifecycle without moving funds.
 
-3. Fill at least:
+Impact: the transaction from agent-created work to human proof to payout is runnable today. That is the missing loop for AI-native labor markets—not a marketplace of resumes, a protocol for one complete job.
 
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `NEXT_PUBLIC_APP_URL` (`http://localhost:3000` locally)
-- `DEMO_COMPANY_EMAIL` / `DEMO_COMPANY_PASSWORD`
-- `DEMO_DEVELOPER_EMAIL` / `DEMO_DEVELOPER_PASSWORD`
-- `DEMO_DEVELOPER_WALLET` (Base address that should receive USDC)
-- `MISSIONS_MCP_KEY` (any long random string; Cursor must use the same value)
-- `PAYMENT_MODE=mock` until live payouts. Only `live` sends real USDC on Base; any other value (including unset) stays mock.
-- Optional: `DISCORD_WEBHOOK_URL`, `THIRDWEB_SECRET_KEY`, `PLATFORM_MASTER_WALLET_ADDRESS`, `OPENAI_API_KEY`
+---
 
-4. Create demo identities and the sample Mission:
+## Quick start
 
 ```bash
+git clone https://github.com/opeawo/missions.git
+cd missions
+npm install
+cp .env.example .env.local   # fill values; never commit .env.local
+# In Supabase SQL editor, run supabase/migrations/001_init.sql through 006_mcp_oauth.sql in order
 npm run seed
-```
-
-This uses the Auth admin API to create the company and developer users if they do not exist, fills the developer profile (GitHub, LinkedIn, country, wallet), and inserts one open Mission.
-
-5. Run the app:
-
-```bash
 npm run dev
 ```
 
-Open `/missions` and you should see **Ship a public Northstar example**.
+Open [http://localhost:3000/missions](http://localhost:3000/missions). You should see **Ship a public Northstar example**. Sign in at `/login` with the demo company and developer emails from `.env.local`.
 
-Sign in at `/login` with the demo emails.
-
-Reset the demo (deletes missions/claims/submissions/payments, reseeds the sample Mission, keeps users):
+Reset the demo (deletes missions / claims / submissions / payments, reseeds the sample Mission, keeps users):
 
 ```bash
 npm run reset
 ```
 
-## Cursor MCP
-
-The product loop is meant to be driven as tool calls, not a marketing site:
-
-`create_mission → list/get → claim_mission → submit_mission → list_reviews / get_submissions → approve_submission | reject_submission → get_payment`
-
-Copy [`.cursor/mcp.json.example`](.cursor/mcp.json.example) to `.cursor/mcp.json` (gitignored) and point `cwd` at this checkout. `npm run mcp` loads `.env.local`, including production Supabase on this machine, so the tools write to the live service. Mission links use `NEXT_PUBLIC_APP_URL` (default `https://missions.cv`).
-
-```json
-{
-  "mcpServers": {
-    "missions": {
-      "command": "npm",
-      "args": ["run", "mcp"],
-      "cwd": "/ABSOLUTE/PATH/TO/missions"
-    }
-  }
-}
-```
-
-If you would rather inline env instead of `--env-file=.env.local`, set at least:
-
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `NEXT_PUBLIC_APP_URL` (`https://missions.cv` against production)
-- `DEMO_COMPANY_EMAIL`
-- `DEMO_DEVELOPER_EMAIL`
-- `MISSIONS_MCP_KEY`
-- `PAYMENT_MODE` (`mock` until live USDC)
-
-Reload MCP in Cursor after saving the config.
-
-**Hosted / other harnesses.** Stdio is what Cursor runs today. Streamable HTTP lives at `POST https://missions.cv/api/mcp` with `Authorization: Bearer YOUR_MISSIONS_MCP_KEY` (same value as `MISSIONS_MCP_KEY`). That route is in this repo; it is only on production after the next deploy that includes it. Until then, Cursor should use the stdio config above.
-
-```json
-{
-  "mcpServers": {
-    "missions": {
-      "url": "https://missions.cv/api/mcp",
-      "headers": {
-        "Authorization": "Bearer YOUR_MISSIONS_MCP_KEY"
-      }
-    }
-  }
-}
-```
-
-Tools: `create_mission` (auto-publishes), `get_mission`, `list_missions`, `claim_mission`, `submit_mission`, `get_submissions`, `list_reviews`, `approve_submission`, `reject_submission`, `retry_payout`, `get_payment`.
-
-Prove the loop against the env in `.env.local`:
+Optional proofs against the seeded identities:
 
 ```bash
 npm run mcp:proof
+npm run oauth:proof
 ```
 
-## Payments
+---
 
-Money flows through thirdweb **server wallets**, so no private key is ever stored. The project
-secret key authorises signing and thirdweb Vault holds the keys.
+## Tech stack & architecture
 
-**Wallets**
+| Layer | Choice |
+| --- | --- |
+| Web UI + server actions | Next.js App Router (React 19) |
+| Auth, Postgres, RLS | Supabase |
+| Agent tools | Hosted MCP (`POST /api/mcp`), Streamable HTTP + OAuth 2.1 |
+| Payouts | thirdweb server wallets, USDC on Base |
+| Distribution | Discord webhook on first public publish |
+| Optional drafting | OpenAI (`planFromUrl` / campaign generator) |
 
-- **One wallet per mission**, not per organization, so no wallet ever holds funds for more than one
-  mission. Each is labelled `mission:<mission id>` and created with the mission; the company sees its
-  deposit address on the mission page. The same label always resolves to the same wallet.
-- One platform treasury receives every fee. Create a server wallet in the thirdweb dashboard
-  (**Wallets → Server wallets**) and put its address in `PLATFORM_MASTER_WALLET_ADDRESS`.
-- Deposit to the address the app shows (`missions.deposit_address`). `createServerWallet` also returns
-  a separate predicted smart account address, stored as `missions.deposit_smart_account_address` for
-  reference only.
+Do not duplicate business rules in the MCP layer. Tools call `src/lib/domain`.
 
-**The 15% cut**
+```mermaid
+flowchart LR
+  Cursor["Cursor / MCP client"] -->|OAuth + tools| MCP["POST /api/mcp"]
+  Web["Next.js app"] --> Domain["src/lib/domain"]
+  MCP --> Domain
+  Domain --> SB[(Supabase Auth + Postgres)]
+  Domain -->|optional| Discord[Discord webhook]
+  Domain -->|mock or live| TW[thirdweb server wallet / Base USDC]
+```
 
-`PLATFORM_FEE_BPS` (default `1500`) is charged **on top** of the reward, so the developer always
-receives the full amount. A 400 USDC mission costs the organization 460 USDC: 60 to the master
-wallet, 400 to the developer. Amounts are computed in integer micro-USDC, and the truncating
-division favours the organization by at most 0.000001 USDC.
+Money flow (live mode): one wallet per mission → fee to platform master wallet on publish → reward to developer wallet on approve. Refunds go back to depositors reconstructed from USDC transfer logs, never to a company-nominated withdrawal address.
 
-**Lifecycle**
+---
 
-1. Creating a mission provisions its wallet. The organization deposits reward + fee into it.
-2. Publishing calls `fundMission`, which transfers the fee to the master wallet, leaving exactly the
-   reward behind, and marks the mission `funded`. Publishing fails with the exact shortfall if the
-   wallet is short.
-3. Approving a submission sends the reward from the mission wallet to the developer and marks the
-   mission `released`.
+## How to reproduce the demo
 
-Because each wallet holds a single mission's money, funding needs no reserved-balance accounting: the
-wallet balance *is* that mission's escrow. Approval also funds the mission first if it was never
-charged, so the fee is collected on every payout. Funding is idempotent, and claiming the row before
-transferring means concurrent publishes cannot double-charge.
+Judging script (under four minutes): [`DEMO.md`](DEMO.md).
 
-**Returning unspent funds**
+1. Create a Supabase project. Run the SQL files in [`supabase/migrations`](supabase/migrations) **in order**.
+2. Copy env (keep secrets in `.env.local` only):
 
-Money leaves a mission wallet in exactly three directions: the platform fee to the master wallet, the
-reward to the developer, and unspent balance **back to the address that deposited it**. There is no
-company-nominated refund or withdrawal address, deliberately. Letting a company pay USDC in at one
-address and take it out at another is the standard shape of a laundering rail, and the platform would
-be the one providing it.
+```bash
+cp .env.example .env.local
+```
 
-So refunds are reconstructed from the chain rather than from user input. `usdcDepositsBySender` reads
-USDC `Transfer` logs into the mission wallet and totals them per sender; the sweep then returns the
-unspent balance to those senders, pro rata to what each sent.
+3. Fill the variables in [`.env.example`](.env.example). Sample file (placeholders only):
 
-Two rules keep this honest:
+```bash
+# Public
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+NEXT_PUBLIC_DISCORD_URL=
+NEXT_PUBLIC_X_URL=
+NEXT_PUBLIC_GITHUB_URL=
 
-- **No address receives more than it deposited.** The deposit history read is capped at 500 transfers,
-  and without this cap a truncated history would inflate each share.
-- **Untraceable balance stays put.** If the unspent amount exceeds what can be attributed to known
-  depositors, the remainder stays in the mission wallet rather than being pushed to whichever address
-  happens to be known. thirdweb holds the key, so nothing is lost.
+# Server
+SUPABASE_SERVICE_ROLE_KEY=
 
-Sweeping is allowed when the wallet holds more than the mission still owes: the whole balance before
-publishing or after the developer is paid, and the surplus above the reward while a mission is live.
-Every outbound refund is recorded in the `refunds` table for audit, including failures.
+# Demo identities (used by seed/reset)
+DEMO_COMPANY_EMAIL=company@missions.dev
+DEMO_COMPANY_PASSWORD=
+DEMO_COMPANY_NAME=Northstar AI
+DEMO_DEVELOPER_EMAIL=developer@missions.dev
+DEMO_DEVELOPER_PASSWORD=
+DEMO_DEVELOPER_NAME=Ada Okonkwo
+DEMO_DEVELOPER_WALLET=
+DEMO_DEVELOPER_COUNTRY=NG
+DEMO_DEVELOPER_GITHUB=https://github.com/adaokonkwo
+DEMO_DEVELOPER_LINKEDIN=https://www.linkedin.com/in/adaokonkwo
+DEMO_DEVELOPER_X=https://x.com/adaokonkwo
+DEMO_DEVELOPER_SUBSTACK=
 
-- `PAYMENT_MODE=mock` records fees and payouts with `mock_*` hashes and moves no USDC.
-- `PAYMENT_MODE=live` requires `THIRDWEB_SECRET_KEY` and `PLATFORM_MASTER_WALLET_ADDRESS`.
-- Payouts never run in the browser. Duplicate payouts are blocked by a unique `payments.submission_id`.
-- Failed payouts stay visible; use **Retry payout**.
+# Hosted MCP OAuth. Generate with: openssl rand -base64 32
+MISSIONS_OAUTH_SECRET=
 
-Default USDC on Base: `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`.
+# Discord (outbound publish only)
+DISCORD_WEBHOOK_URL=
 
-## Deploy
+# Payments — Base USDC. Use PAYMENT_MODE=mock until the master wallet exists.
+PAYMENT_MODE=mock
+THIRDWEB_SECRET_KEY=
+# thirdweb server wallet address that receives the platform fee.
+PLATFORM_MASTER_WALLET_ADDRESS=
+# Platform cut in basis points. 1500 = 15%, charged on top of the reward.
+PLATFORM_FEE_BPS=1500
+USDC_ADDRESS=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
 
-Vercel: set the same env vars, `NEXT_PUBLIC_APP_URL` to the production URL, keep `PAYMENT_MODE=mock` until the master wallet exists and organizations have deposited USDC.
+OPENAI_API_KEY=
+
+# Optional. JSON overlay for geographic and effort multipliers used in campaign budgets.
+# PRICING_CONFIG_JSON={"baseReward":250,"geoMultipliers":{"us":1.7}}
+PRICING_CONFIG_JSON=
+```
+
+**Required for a local demo:** Supabase URL + anon + service role, `NEXT_PUBLIC_APP_URL`, demo emails/passwords, `DEMO_DEVELOPER_WALLET` (Base address), `MISSIONS_OAUTH_SECRET`, `PAYMENT_MODE=mock`.
+
+**API keys (optional depending on path):**
+
+| Key | Needed when |
+| --- | --- |
+| `OPENAI_API_KEY` | URL-to-campaign / mission drafting |
+| `THIRDWEB_SECRET_KEY` + `PLATFORM_MASTER_WALLET_ADDRESS` | `PAYMENT_MODE=live` USDC transfers |
+| `DISCORD_WEBHOOK_URL` | Auto-post on first public publish |
+
+4. `npm run seed` then `npm run dev`.
+5. Company login → `/missions`. Developer login → claim → submit prepared URLs (do not code during judging). Company → **Approve and pay**. Mock hashes look like `mock_…`.
+6. Cursor MCP: copy [`.cursor/mcp.json.example`](.cursor/mcp.json.example) (production URL `https://missions.cv/api/mcp`). Cursor discovers OAuth; no API key header. Tools run as the signed-in profile.
+
+Vercel: set the same vars, point `NEXT_PUBLIC_APP_URL` at the production host, keep `PAYMENT_MODE=mock` until the master wallet exists and organizations have deposited USDC.
+
+---
+
+## Datasets / synthetic data + provenance
+
+This repo does **not** ship a third-party research dataset. Demo data is synthetic and generated locally:
+
+| Artifact | Provenance |
+| --- | --- |
+| Company **Northstar AI** + developer **Ada Okonkwo** | Fictional personas created by `npm run seed` (`scripts/lib.ts`). Profile links (`github.com/adaokonkwo`, etc.) are placeholders, not real people. |
+| Mission **Ship a public Northstar example** | Hand-written seed row: 25 USDC, public, already marked `funded` with `fee_transaction_hash=seed_fee` so the UI loop works without on-chain deposits. |
+| Campaign geo / effort multipliers | Internal planning defaults in `src/lib/pricing.ts` (`DEFAULT_PRICING`). Not BLS, Numbeo, or any wage survey. Override with `PRICING_CONFIG_JSON`. |
+| Base USDC contract | Canonical Base USDC: `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`. |
+
+Do not treat seed names, wallets, or multipliers as production market data.
+
+---
+
+## Known limitations & next steps
+
+**Limitations**
+
+- Default payouts are **mock**. Live USDC needs a funded mission wallet, thirdweb keys, and `PAYMENT_MODE=live`.
+- Missions are single-claimer; there is no bidding marketplace.
+- URL checks are advisory; the company remains the final authority.
+- Refunds reconstruct depositors from on-chain USDC logs (capped); untraceable surplus stays in the mission wallet.
+- Campaign pricing is heuristic, not a quoted marketplace.
+- OAuth MCP and campaign wallets are young; treat them as demo-grade ops, not a bank.
+
+**Next steps**
+
+- Production payout runbook (deposit, fund, approve, Basescan) with tiny live amounts.
+- Stronger deliverable verification (repo exists, demo loads, post is public) without replacing company review.
+- Multi-mission campaigns as a first-class company workflow.
+- Rate limits and abuse controls on public MCP and publish.
+
+---
+
+## Deployed URL
+
+**https://missions.cv**
+
+MCP endpoint: `https://missions.cv/api/mcp`
+
+If the live instance is reset, follow **Quick start** locally; the seeded Mission is enough to walk the loop.
+
+---
+
+## Team roster
+
+| Name | Role | Contact |
+| --- | --- | --- |
+| Opeyemi Awoyemi | Founder / sole engineer (product, backend, MCP, payments, demo) | [github.com/opeawo](https://github.com/opeawo) |
+
+One-person team.

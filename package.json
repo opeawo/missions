@@ -9,8 +9,8 @@
     "lint": "eslint",
     "seed": "tsx --env-file=.env.local scripts/seed.ts",
     "reset": "tsx --env-file=.env.local scripts/reset.ts",
-    "mcp": "tsx --env-file=.env.local mcp/index.ts",
-    "mcp:proof": "tsx --env-file=.env.local scripts/mcp-loop-proof.ts"
+    "mcp:proof": "tsx --env-file=.env.local scripts/mcp-loop-proof.ts",
+    "oauth:proof": "tsx --env-file=.env.local scripts/oauth-proof.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

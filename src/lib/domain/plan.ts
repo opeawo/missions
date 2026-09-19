@@ -17,6 +17,8 @@ export type ProposedMission = {
   requirements: string;
   required_deliverables: DeliverableType[];
   effort: EffortLevel;
+  /** Company-set USDC reward. When omitted, launch falls back to the effort table. */
+  reward_amount?: number;
   estimated_effort: string;
   visibility: MissionVisibility;
   public_post: boolean;

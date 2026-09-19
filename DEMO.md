@@ -70,7 +70,7 @@ Scroll the confirmation. Repeat: agent created work, human shipped proof, the pr
 | Symptom | Fix |
 | --- | --- |
 | Seeded mission missing | `npm run reset` |
-| MCP cannot create | Check `MISSIONS_MCP_KEY`, `DEMO_COMPANY_EMAIL`, service role, `cwd` |
+| MCP cannot connect | Check OAuth migration, `MISSIONS_OAUTH_SECRET`, app URL, and the signed-in account role |
 | Discord silent | Public + first publish only; `DISCORD_WEBHOOK_URL`; already has `discord_message_id` |
 | Approve blocked | Developer `/me` wallet must be set |
 | Live payout fails | Fund payout wallet, `PAYMENT_MODE=live`, keys present; or switch to mock |

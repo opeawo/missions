@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
-  campaignBudget,
+  campaignBudgetFromRewards,
+  firstWaveSpendFromRewards,
   missionReward,
   resolvePricingConfig,
   type Region,
@@ -29,6 +30,8 @@ export type LaunchCampaignInput = {
   category?: string;
   geography: Region;
   developer_target_count: number;
+  /** Company-chosen budget. Falls back to the recommended amount when omitted. */
+  total_budget?: number;
   missions: LaunchMissionInput[];
 };
 
@@ -40,6 +43,27 @@ function assertCompany(actor: Actor) {
 
 function pricing() {
   return resolvePricingConfig(process.env.PRICING_CONFIG_JSON);
+}
+
+function parseBudget(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new DomainError("Enter a budget greater than 0", "validation");
+  }
+  const rounded = Math.round(value * 100) / 100;
+  if (rounded > 1_000_000) {
+    throw new DomainError("Budget cannot exceed 1,000,000 USDC", "validation");
+  }
+  return rounded;
+}
+
+function parseReward(value: unknown, fallback: number): number {
+  const amount = typeof value === "number" ? value : Number(value);
+  const resolved = Number.isFinite(amount) && amount >= 1 ? amount : fallback;
+  const rounded = Math.round(resolved * 100) / 100;
+  if (rounded < 1) {
+    throw new DomainError("Reward must be at least 1 USDC", "validation");
+  }
+  return rounded;
 }
 
 function campaignWalletLabel(campaignId: string): string {
@@ -234,14 +258,21 @@ async function publishCampaignMission(mission: Mission): Promise<Mission> {
   return parseMission(posted as Mission);
 }
 
+export type PreparedCampaign = {
+  campaign: Campaign;
+  missions: Mission[];
+  funding: CampaignFunding;
+  walletError: string | null;
+};
+
 /**
- * Creates the campaign, writes the selected missions, charges the platform fee,
- * and opens the missions. Money is calculated here — the client estimate is ignored.
+ * Saves the campaign and missions as drafts and provisions the deposit wallet.
+ * Does not charge the fee or open missions — that happens on Fund & launch.
  */
-export async function launchCampaign(
+export async function prepareCampaign(
   actor: Actor,
   input: LaunchCampaignInput,
-): Promise<{ campaign: Campaign; missions: Mission[] }> {
+): Promise<PreparedCampaign> {
   assertCompany(actor);
   const included = input.missions.filter((m) => m.included);
   if (included.length === 0) {
@@ -253,8 +284,19 @@ export async function launchCampaign(
   }
 
   const config = pricing();
-  const efforts = included.map((m) => m.effort);
-  const budget = campaignBudget(efforts, count, input.geography, config);
+  const rewards = included.map((idea) =>
+    parseReward(idea.reward_amount, missionReward(idea.effort, input.geography, config)),
+  );
+  const estimate = campaignBudgetFromRewards(rewards, count);
+  const minimum = firstWaveSpendFromRewards(rewards);
+  const total =
+    input.total_budget === undefined ? estimate.recommended : parseBudget(input.total_budget);
+  if (total < minimum) {
+    throw new DomainError(
+      `Budget must be at least ${minimum} USDC to fund the first missions`,
+      "validation",
+    );
+  }
 
   const admin = createAdminClient();
   const { data: campaignRow, error: campaignError } = await admin
@@ -266,13 +308,14 @@ export async function launchCampaign(
       product_summary: input.product_summary.trim(),
       geography: input.geography,
       developer_target_count: count,
-      total_budget: budget.recommended,
+      total_budget: total,
       currency: "USDC",
       status: "draft",
       ai_plan: {
         category: input.category || "",
         missions: included,
-        estimate: budget,
+        estimate,
+        chosen_budget: total,
       },
     })
     .select("*")
@@ -280,14 +323,14 @@ export async function launchCampaign(
   if (campaignError) throw new DomainError(campaignError.message, "db");
   let campaign = parseCampaign(campaignRow as Campaign);
 
-  const missionRows = included.map((idea) => ({
+  const missionRows = included.map((idea, index) => ({
     company_id: actor.id,
     campaign_id: campaign.id,
     title: idea.title.trim(),
     description: idea.description.trim(),
     requirements: idea.requirements.trim(),
     required_deliverables: idea.required_deliverables,
-    reward_amount: missionReward(idea.effort, input.geography, config),
+    reward_amount: rewards[index],
     reward_currency: "USDC",
     visibility: idea.visibility === "private" ? ("private" as const) : ("public" as const),
     status: "draft" as const,
@@ -298,13 +341,56 @@ export async function launchCampaign(
     .insert(missionRows)
     .select("*");
   if (missionError) throw new DomainError(missionError.message, "db");
-  let missions = ((inserted ?? []) as Mission[]).map(parseMission);
+  const missions = ((inserted ?? []) as Mission[]).map(parseMission);
 
+  let walletError: string | null = null;
   try {
     campaign = await ensureCampaignWallet(actor, campaign.id);
-  } catch {
-    // Wallet can be created on the campaign page if thirdweb is not ready.
+  } catch (err) {
+    walletError = err instanceof Error ? err.message : "Could not create the deposit wallet";
   }
+
+  const funding = await getCampaignFunding(actor, campaign.id);
+  return { campaign, missions, funding, walletError };
+}
+
+export async function updateCampaignBudget(
+  actor: Actor,
+  campaignId: string,
+  totalBudget: number,
+): Promise<CampaignFunding> {
+  const campaign = await ownedCampaign(actor, campaignId);
+  if (campaign.status !== "draft" || campaign.funding_status !== "unfunded") {
+    throw new DomainError("Budget is locked after funding", "invalid_state");
+  }
+
+  const total = parseBudget(totalBudget);
+  const missions = await listCampaignMissions(campaignId);
+  const minimum = missions.reduce((sum, mission) => sum + Number(mission.reward_amount), 0);
+  if (total < minimum) {
+    throw new DomainError(
+      `Budget must be at least ${minimum} USDC to fund the first missions`,
+      "validation",
+    );
+  }
+
+  const admin = createAdminClient();
+  const { error } = await admin.from("campaigns").update({ total_budget: total }).eq("id", campaignId);
+  if (error) throw new DomainError(error.message, "db");
+  return getCampaignFunding(actor, campaignId);
+}
+
+/**
+ * Creates the campaign, writes the selected missions, charges the platform fee,
+ * and opens the missions. Money is calculated here — the client estimate is ignored.
+ */
+export async function launchCampaign(
+  actor: Actor,
+  input: LaunchCampaignInput,
+): Promise<{ campaign: Campaign; missions: Mission[] }> {
+  const prepared = await prepareCampaign(actor, input);
+  let campaign = prepared.campaign;
+  let missions = prepared.missions;
 
   try {
     campaign = await fundCampaign(actor, campaign.id);
@@ -322,6 +408,7 @@ export async function launchCampaign(
   }
   missions = opened;
 
+  const admin = createAdminClient();
   const { data: live, error: liveError } = await admin
     .from("campaigns")
     .update({ status: "live" })
@@ -337,6 +424,11 @@ export async function launchCampaign(
 export async function retryCampaignLaunch(actor: Actor, campaignId: string): Promise<Campaign> {
   let campaign = await ownedCampaign(actor, campaignId);
   if (campaign.status === "live" && campaign.funding_status === "funded") return campaign;
+  try {
+    campaign = await ensureCampaignWallet(actor, campaignId);
+  } catch {
+    // Mock mode can still launch without a live wallet; live funding will fail clearly.
+  }
   campaign = await fundCampaign(actor, campaignId);
   const missions = await listCampaignMissions(campaignId);
   for (const mission of missions) {

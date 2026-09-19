@@ -36,6 +36,12 @@ function normalizeDeliverables(list: string[] | undefined): DeliverableType[] {
   return (list ?? []).filter((d): d is DeliverableType => allowed.has(d));
 }
 
+function assertValidReward(reward: number) {
+  if (!Number.isFinite(reward) || reward < 1) {
+    throw new DomainError("Reward must be at least 1 USDC", "validation");
+  }
+}
+
 export async function createMission(
   actor: Actor,
   input: CreateMissionInput,
@@ -47,9 +53,7 @@ export async function createMission(
   if (!title || !description) {
     throw new DomainError("Title and description are required", "validation");
   }
-  if (!input.reward_amount || input.reward_amount <= 0) {
-    throw new DomainError("Reward must be greater than 0", "validation");
-  }
+  assertValidReward(input.reward_amount);
 
   const autoPublish = Boolean(opts?.autoPublish);
   const visibility = input.visibility ?? "public";
@@ -117,6 +121,7 @@ export async function updateMission(
   }
 
   const rewardLocked = missionRewardIsLocked(existing);
+  if (!rewardLocked) assertValidReward(input.reward_amount);
   const admin = createAdminClient();
   const { data, error } = await admin
     .from("missions")

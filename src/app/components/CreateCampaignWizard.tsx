@@ -2,18 +2,22 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { launchCampaignAction, planFromUrlAction } from "@/app/actions/campaigns";
+import { planFromUrlAction, prepareCampaignAction } from "@/app/actions/campaigns";
 import {
   REGION_LABELS,
   REGIONS,
-  campaignBudget,
-  developersForBudget,
+  campaignBudgetFromRewards,
+  depositForBudget,
   estimateOutput,
+  firstWaveSpendFromRewards,
   missionReward,
+  type BudgetEstimate,
   type Region,
 } from "@/lib/pricing";
+import type { CampaignFunding } from "@/lib/domain";
 import type { ProductPlan, ProposedMission } from "@/lib/domain/plan";
 import { FormError } from "./FormBanner";
+import { CampaignLaunchPanel } from "./CampaignLaunchPanel";
 import { MissionForm } from "./MissionForm";
 import { formatReward } from "@/lib/format";
 import { FIRST_LAUNCH_CREDIT_USD } from "@/lib/site";
@@ -21,7 +25,7 @@ import { FIRST_LAUNCH_CREDIT_USD } from "@/lib/site";
 const COUNTS = [10, 25, 50, 100] as const;
 const STEPS = ["Reading the product", "Finding developer use cases", "Estimating difficulty", "Planning missions"];
 
-type Idea = ProposedMission & { included: boolean };
+type Idea = ProposedMission & { included: boolean; reward_amount: number };
 
 export function CreateCampaignWizard() {
   const router = useRouter();
@@ -40,6 +44,12 @@ export function CreateCampaignWizard() {
   const [developers, setDevelopers] = useState(25);
   const [customCount, setCustomCount] = useState("");
   const [region, setRegion] = useState<Region>("global");
+  const [budgetText, setBudgetText] = useState("");
+  const [prepared, setPrepared] = useState<{
+    campaignId: string;
+    funding: CampaignFunding;
+    walletError: string | null;
+  } | null>(null);
 
   useEffect(() => {
     if (!pending) return;
@@ -50,15 +60,20 @@ export function CreateCampaignWizard() {
   }, [pending]);
 
   const included = ideas.filter((idea) => idea.included);
-  const efforts = included.map((idea) => idea.effort);
+  const rewards = included.map((idea) => idea.reward_amount);
   const count = customCount ? Math.max(1, Math.floor(Number(customCount) || 1)) : developers;
   const estimate = useMemo(
-    () => campaignBudget(efforts, count, region),
-    [efforts, count, region],
+    () => campaignBudgetFromRewards(rewards, count),
+    [count, rewards.join(",")],
   );
   const output = estimateOutput(count);
-  const usReach = developersForBudget(estimate.recommended, efforts, "us");
-  const globalReach = developersForBudget(estimate.recommended, efforts, "global");
+  const minimum = firstWaveSpendFromRewards(rewards);
+  const budget = budgetText === "" ? estimate.recommended : Number(budgetText) || 0;
+  const deposit = depositForBudget(budget);
+  const developerReach = Math.max(
+    1,
+    Math.floor((budget || estimate.recommended) / Math.max(estimate.averageReward, 1)),
+  );
 
   function analyze(formData: FormData) {
     setError(null);
@@ -77,29 +92,37 @@ export function CreateCampaignWizard() {
         product_summary: result.plan.product_summary,
         category: result.plan.category,
       });
-      setIdeas(result.plan.missions.map((m) => ({ ...m, included: true })));
+      setIdeas(
+        result.plan.missions.map((m) => ({
+          ...m,
+          included: true,
+          reward_amount: missionReward(m.effort, "global"),
+        })),
+      );
       setStep(2);
     });
   }
 
-  function launch() {
+  function prepare() {
     if (!product) return;
     setError(null);
     start(async () => {
-      const result = await launchCampaignAction({
+      const result = await prepareCampaignAction({
         product_url: url,
         product_name: product.product_name,
         product_summary: product.product_summary,
         category: product.category,
         geography: region,
         developer_target_count: count,
+        total_budget: budget,
         missions: ideas,
       });
       if ("error" in result) {
         setError(result.error);
         return;
       }
-      router.push(`/campaigns/${result.campaignId}`);
+      setPrepared(result);
+      if (result.walletError) setError(result.walletError);
     });
   }
 
@@ -148,6 +171,10 @@ export function CreateCampaignWizard() {
                   setError("Keep at least one mission");
                   return;
                 }
+                if (included.some((idea) => !Number.isFinite(idea.reward_amount) || idea.reward_amount < 1)) {
+                  setError("Each included mission needs a reward of at least 1 USDC");
+                  return;
+                }
                 setError(null);
                 setStep(3);
               }}
@@ -160,16 +187,27 @@ export function CreateCampaignWizard() {
               customCount={customCount}
               region={region}
               estimate={estimate}
-              usReach={usReach}
-              globalReach={globalReach}
+              budget={budget}
+              budgetText={budgetText}
+              minimum={minimum}
+              deposit={deposit}
+              globalReach={developerReach}
               onPreset={(n) => {
                 setDevelopers(n);
                 setCustomCount("");
               }}
               onCustom={setCustomCount}
               onRegion={setRegion}
+              onBudget={setBudgetText}
               onBack={() => setStep(2)}
-              onNext={() => setStep(4)}
+              onNext={() => {
+                if (budget < minimum) {
+                  setError(`Budget must be at least ${formatReward(minimum)} to fund the first missions`);
+                  return;
+                }
+                setError(null);
+                setStep(4);
+              }}
             />
           )}
           {step === 4 && product && (
@@ -178,12 +216,18 @@ export function CreateCampaignWizard() {
               included={included}
               count={count}
               region={region}
+              budget={budget}
               estimate={estimate}
+              deposit={deposit}
               output={output}
               pending={pending}
               error={error}
+              prepared={prepared}
               onBack={() => setStep(3)}
-              onLaunch={launch}
+              onPrepare={prepare}
+              onLaunched={() => {
+                if (prepared) router.push(`/campaigns/${prepared.campaignId}`);
+              }}
             />
           )}
         </>
@@ -317,8 +361,19 @@ function ScreenTwo({
             key={`${index}-${idea.effort}`}
             className={`bg-background px-6 py-8 ${idea.included ? "" : "opacity-50"}`}
           >
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <p className="text-label text-accent">From {formatReward(missionReward(idea.effort, "global"))}</p>
+            <div className="flex flex-wrap items-end justify-between gap-4">
+              <div className="max-w-40">
+                <label htmlFor={`mission-reward-${index}`}>Reward (USDC)</label>
+                <input
+                  id={`mission-reward-${index}`}
+                  type="number"
+                  min={1}
+                  step="1"
+                  inputMode="decimal"
+                  value={Number.isFinite(idea.reward_amount) ? idea.reward_amount : ""}
+                  onChange={(e) => onChange(index, { reward_amount: Number(e.target.value) })}
+                />
+              </div>
               <button type="button" className="btn-quiet" onClick={() => onToggle(index)}>
                 {idea.included ? "Leave out" : "Include"}
               </button>
@@ -389,11 +444,15 @@ function ScreenThree({
   customCount,
   region,
   estimate,
-  usReach,
+  budget,
+  budgetText,
+  minimum,
+  deposit,
   globalReach,
   onPreset,
   onCustom,
   onRegion,
+  onBudget,
   onBack,
   onNext,
 }: {
@@ -401,21 +460,27 @@ function ScreenThree({
   preset: number;
   customCount: string;
   region: Region;
-  estimate: ReturnType<typeof campaignBudget>;
-  usReach: number;
+  estimate: BudgetEstimate;
+  budget: number;
+  budgetText: string;
+  minimum: number;
+  deposit: ReturnType<typeof depositForBudget>;
   globalReach: number;
   onPreset: (n: number) => void;
   onCustom: (value: string) => void;
   onRegion: (region: Region) => void;
+  onBudget: (value: string) => void;
   onBack: () => void;
   onNext: () => void;
 }) {
+  const belowMinimum = budget > 0 && budget < minimum;
   return (
     <div className="space-y-10">
       <div className="space-y-3">
-        <h1 className="text-section">How far do you want to reach?</h1>
+        <h1 className="text-section">Set your budget</h1>
         <p className="text-lead max-w-xl">
-          How many developers do you want, and where should they be? We’ll recommend a budget.
+          How many developers do you want, and where should they be? Edit the budget, or keep our
+          recommendation.
         </p>
       </div>
 
@@ -458,17 +523,39 @@ function ScreenThree({
         </div>
       </div>
 
-      <div className="cell space-y-3">
-        <p className="text-label text-muted-foreground">Recommended budget</p>
-        <p className="font-display text-4xl tracking-tight">{formatReward(estimate.recommended)}</p>
+      <div className="cell space-y-4">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <label htmlFor="campaign-budget-plan">Budget</label>
+            <input
+              id="campaign-budget-plan"
+              className="mt-2 max-w-56"
+              type="number"
+              min="0.01"
+              step="0.01"
+              value={budgetText === "" ? estimate.recommended : budgetText}
+              onChange={(e) => onBudget(e.target.value)}
+            />
+          </div>
+          {budgetText !== "" && Number(budgetText) !== estimate.recommended && (
+            <button type="button" className="btn-quiet" onClick={() => onBudget("")}>
+              Use recommended {formatReward(estimate.recommended)}
+            </button>
+          )}
+        </div>
         <p className="text-sm text-muted-foreground">
-          Estimated range {formatReward(estimate.low)} – {formatReward(estimate.high)}. Rewards start
-          from {formatReward(estimate.averageReward)} and vary by complexity and region.
+          Recommended {formatReward(estimate.recommended)} (range {formatReward(estimate.low)} –{" "}
+          {formatReward(estimate.high)}). Deposit {formatReward(deposit.required)} including a{" "}
+          {deposit.feePercent}% fee of {formatReward(deposit.fee)}.
         </p>
+        {belowMinimum && (
+          <p className="text-sm text-accent">
+            Needs at least {formatReward(minimum)} to fund the first missions.
+          </p>
+        )}
         {region !== "us" && (
           <p className="text-sm text-muted-foreground">
-            For this budget, Global reaches about {globalReach} developers. United States reaches
-            about {usReach}.
+            At these rewards, this budget funds about {globalReach} developers.
           </p>
         )}
         {region === "us" && (
@@ -482,7 +569,7 @@ function ScreenThree({
         <button type="button" className="btn-quiet" onClick={onBack}>
           ← Back
         </button>
-        <button type="button" className="btn-primary" onClick={onNext} disabled={count < 1}>
+        <button type="button" className="btn-primary" onClick={onNext} disabled={count < 1 || belowMinimum}>
           Next
         </button>
       </div>
@@ -495,28 +582,36 @@ function ScreenFour({
   included,
   count,
   region,
+  budget,
   estimate,
+  deposit,
   output,
   pending,
   error,
+  prepared,
   onBack,
-  onLaunch,
+  onPrepare,
+  onLaunched,
 }: {
   product: Pick<ProductPlan, "product_name">;
   included: Idea[];
   count: number;
   region: Region;
-  estimate: ReturnType<typeof campaignBudget>;
+  budget: number;
+  estimate: BudgetEstimate;
+  deposit: ReturnType<typeof depositForBudget>;
   output: ReturnType<typeof estimateOutput>;
   pending: boolean;
   error: string | null;
+  prepared: { campaignId: string; funding: CampaignFunding; walletError: string | null } | null;
   onBack: () => void;
-  onLaunch: () => void;
+  onPrepare: () => void;
+  onLaunched: () => void;
 }) {
   return (
     <div className="space-y-10">
       <div className="space-y-3">
-        <p className="text-label text-muted-foreground">Here’s what we recommend</p>
+        <p className="text-label text-muted-foreground">Fund and launch</p>
         <h1 className="text-section">{product.product_name} developer campaign</h1>
       </div>
       <FormError error={error} />
@@ -524,7 +619,7 @@ function ScreenFour({
         <SummaryCell label="Developers" value={String(count)} />
         <SummaryCell label="Region" value={REGION_LABELS[region]} />
         <SummaryCell label="Missions" value={String(included.length)} />
-        <SummaryCell label="Budget" value={formatReward(estimate.recommended)} />
+        <SummaryCell label="Budget" value={formatReward(budget)} />
       </dl>
       <div className="space-y-3 text-sm leading-relaxed text-muted-foreground">
         <p>
@@ -533,11 +628,13 @@ function ScreenFour({
         </p>
         <p>
           {included.length} missions go live now, one developer each. The rest of the budget stays
-          in the campaign wallet so you can put more developers to work without depositing again.
+          in this campaign&apos;s wallet so you can put more developers to work without depositing
+          again.
         </p>
         <p>
-          Rewards start from {formatReward(estimate.averageReward)} and vary by complexity and
-          geography. A 15% platform fee is added at funding.
+          Deposit {formatReward(deposit.required)}: {formatReward(budget)} for developers plus a{" "}
+          {deposit.feePercent}% fee of {formatReward(deposit.fee)}. Rewards start from{" "}
+          {formatReward(estimate.averageReward)}.
         </p>
       </div>
       <ul className="space-y-2">
@@ -545,19 +642,27 @@ function ScreenFour({
           <li key={idea.title} className="flex justify-between gap-4 text-sm">
             <span>{idea.title}</span>
             <span className="text-label text-muted-foreground">
-              From {formatReward(missionReward(idea.effort, region))}
+              {formatReward(idea.reward_amount)}
             </span>
           </li>
         ))}
       </ul>
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <button type="button" className="btn-quiet" onClick={onBack} disabled={pending}>
-          Edit plan
-        </button>
-        <button type="button" className="btn-primary" onClick={onLaunch} disabled={pending}>
-          {pending ? "Launching…" : "Fund & launch"}
-        </button>
-      </div>
+      {prepared ? (
+        <CampaignLaunchPanel
+          campaignId={prepared.campaignId}
+          funding={prepared.funding}
+          onLaunched={onLaunched}
+        />
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <button type="button" className="btn-quiet" onClick={onBack} disabled={pending}>
+            Edit plan
+          </button>
+          <button type="button" className="btn-primary" onClick={onPrepare} disabled={pending}>
+            {pending ? "Creating wallet…" : "Show deposit address"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

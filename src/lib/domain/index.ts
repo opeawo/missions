@@ -16,7 +16,7 @@ export {
 } from "./submissions";
 export { getPaymentForMission, getPaymentForSubmission } from "./payment-queries";
 export { approveSubmission, retryPayout } from "./payments";
-export { getProfileById, updateProfile, toDeveloperCard } from "./profiles";
+export { getProfileById, createProfile, updateProfile, toDeveloperCard } from "./profiles";
 export {
   ensureMissionWallet,
   fundMission,
@@ -32,7 +32,10 @@ export {
 export { planFromUrl, type ProductPlan, type ProposedMission } from "./plan";
 export {
   launchCampaign,
+  prepareCampaign,
+  updateCampaignBudget,
   retryCampaignLaunch,
+  ensureCampaignWallet,
   getCampaign,
   getCampaignFunding,
   listCampaigns,

@@ -1,6 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { createAdminClient } from "../src/lib/supabase/admin";
 import {
   approveSubmission,
   claimMission,
@@ -12,6 +11,7 @@ import {
   getProfileById,
   listCompanySubmissions,
   listMissions,
+  listOpenMissions,
   listSubmissions,
   missionUrl,
   rejectSubmission,
@@ -19,7 +19,7 @@ import {
   submitWork,
   toDeveloperCard,
 } from "../src/lib/domain";
-import type { Actor, Payment, Profile, Submission } from "../src/lib/domain/types";
+import type { Actor, Payment, Submission } from "../src/lib/domain/types";
 
 function json(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
@@ -57,49 +57,40 @@ function submissionSummary(submission: Submission) {
   };
 }
 
-async function profileByEmail(email: string): Promise<Profile> {
-  const admin = createAdminClient();
-  const { data, error } = await admin.auth.admin.listUsers();
-  if (error) throw error;
-  const user = data.users.find((u) => u.email === email);
-  if (!user) throw new Error(`No auth user for ${email}`);
-  const profile = await getProfileById(user.id);
-  if (!profile) throw new Error(`No profile for ${email}`);
-  return profile;
-}
-
-function asActor(profile: Profile): Actor {
-  return { id: profile.id, role: profile.role, displayName: profile.display_name };
-}
-
-async function companyActor(): Promise<Actor> {
-  const key = process.env.MISSIONS_MCP_KEY;
-  if (!key) throw new Error("MISSIONS_MCP_KEY is not set");
-  const email = process.env.DEMO_COMPANY_EMAIL;
-  if (!email) throw new Error("DEMO_COMPANY_EMAIL is not set");
-  return asActor(await profileByEmail(email));
-}
-
-async function developerActor(): Promise<Actor> {
-  const email = process.env.DEMO_DEVELOPER_EMAIL;
-  if (!email) throw new Error("DEMO_DEVELOPER_EMAIL is not set");
-  return asActor(await profileByEmail(email));
+function canViewMission(
+  actor: Actor,
+  mission: { company_id: string; status: string; visibility: string },
+  developerId?: string,
+) {
+  return (
+    mission.company_id === actor.id ||
+    developerId === actor.id ||
+    (mission.status === "open" && mission.visibility === "public")
+  );
 }
 
 /**
- * Shared tool surface for stdio (Cursor) and Streamable HTTP (`/api/mcp`).
+ * Tool surface for the authenticated Streamable HTTP service (`/api/mcp`).
  * Business rules stay in `src/lib/domain` — this file only maps tools onto that API.
  */
-export function createMissionsMcpServer(): McpServer {
+export function createMissionsMcpServer(actor: Actor): McpServer {
   if (!process.env.NEXT_PUBLIC_APP_URL) {
     process.env.NEXT_PUBLIC_APP_URL = "https://missions.cv";
   }
 
   const server = new McpServer({ name: "missions", version: "1.0.0" });
 
+  server.tool("whoami", "Show the Missions account connected to this MCP session.", {}, async () =>
+    json({
+      id: actor.id,
+      role: actor.role,
+      display_name: actor.displayName,
+    }),
+  );
+
   server.tool(
     "create_mission",
-    "Create and immediately publish paid work as the demo company. Public missions are posted to Discord once.",
+    "Create and immediately publish paid work as the signed-in company. Public missions are posted to Discord once.",
     {
       title: z.string(),
       description: z.string(),
@@ -112,7 +103,6 @@ export function createMissionsMcpServer(): McpServer {
     },
     async (args) => {
       try {
-        const actor = await companyActor();
         const mission = await createMission(
           actor,
           {
@@ -153,6 +143,9 @@ export function createMissionsMcpServer(): McpServer {
         const mission = await getMission(id);
         if (!mission) return err("Mission not found");
         const claim = await getClaimForMission(id);
+        if (!canViewMission(actor, mission, claim?.developer_id)) {
+          return err("You do not have access to this mission");
+        }
         const developer = claim ? await getProfileById(claim.developer_id) : null;
         const [payment, submissions] = await Promise.all([
           getPaymentForMission(id),
@@ -181,12 +174,17 @@ export function createMissionsMcpServer(): McpServer {
 
   server.tool(
     "list_missions",
-    "List missions. Defaults to open. Pass status=all for every status, or claimed/completed/draft.",
+    "List public open missions as a developer, or this account's missions as a company. Companies can filter by status.",
     { status: z.string().optional() },
     async ({ status }) => {
       try {
-        const filter = !status || status === "open" ? { status: "open" } : status === "all" ? {} : { status };
-        const missions = await listMissions(filter);
+        const missions =
+          actor.role === "developer"
+            ? await listOpenMissions()
+            : await listMissions({
+                ...(status && status !== "all" ? { status } : {}),
+                companyId: actor.id,
+              });
         return json(
           missions.map((m) => ({
             id: m.id,
@@ -206,11 +204,10 @@ export function createMissionsMcpServer(): McpServer {
 
   server.tool(
     "claim_mission",
-    "Claim a mission as the demo developer.",
+    "Claim a mission as the signed-in developer.",
     { mission_id: z.string() },
     async ({ mission_id }) => {
       try {
-        const actor = await developerActor();
         const claim = await claimMission(actor, mission_id);
         return json({ id: claim.id, mission_id, status: "claimed", url: missionUrl(mission_id) });
       } catch (e) {
@@ -221,7 +218,7 @@ export function createMissionsMcpServer(): McpServer {
 
   server.tool(
     "submit_mission",
-    "Submit proof URLs as the demo developer.",
+    "Submit proof URLs as the signed-in developer.",
     {
       mission_id: z.string(),
       description: z.string().optional(),
@@ -232,7 +229,6 @@ export function createMissionsMcpServer(): McpServer {
     },
     async (args) => {
       try {
-        const actor = await developerActor();
         const submission = await submitWork(actor, args.mission_id, args);
         return json({
           id: submission.id,
@@ -252,8 +248,16 @@ export function createMissionsMcpServer(): McpServer {
     { mission_id: z.string() },
     async ({ mission_id }) => {
       try {
-        const submissions = await listSubmissions(mission_id);
+        const mission = await getMission(mission_id);
+        if (!mission) return err("Mission not found");
         const claim = await getClaimForMission(mission_id);
+        if (
+          mission.company_id !== actor.id &&
+          !(actor.role === "developer" && claim?.developer_id === actor.id)
+        ) {
+          return err("You do not have access to these submissions");
+        }
+        const submissions = await listSubmissions(mission_id);
         const developer = claim ? await getProfileById(claim.developer_id) : null;
         const withPayments = await Promise.all(
           submissions.map(async (s) => ({
@@ -279,7 +283,7 @@ export function createMissionsMcpServer(): McpServer {
     { status: z.enum(["pending", "approved", "rejected", "all"]).optional() },
     async ({ status }) => {
       try {
-        const actor = await companyActor();
+        if (actor.role !== "company") return err("Only companies can review submissions");
         const rows = await listCompanySubmissions(actor.id);
         const wanted = status ?? "pending";
         const filtered = wanted === "all" ? rows : rows.filter((row) => row.status === wanted);
@@ -305,7 +309,6 @@ export function createMissionsMcpServer(): McpServer {
     { submission_id: z.string() },
     async ({ submission_id }) => {
       try {
-        const actor = await companyActor();
         const result = await approveSubmission(actor, submission_id);
         return json({
           submission_id: result.submission.id,
@@ -321,11 +324,10 @@ export function createMissionsMcpServer(): McpServer {
 
   server.tool(
     "reject_submission",
-    "Reject a pending submission as the demo company. The mission stays claimed so the developer can resubmit.",
+    "Reject a pending submission as the signed-in company. The mission stays claimed so the developer can resubmit.",
     { submission_id: z.string() },
     async ({ submission_id }) => {
       try {
-        const actor = await companyActor();
         const submission = await rejectSubmission(actor, submission_id);
         return json({
           submission_id: submission.id,
@@ -345,7 +347,6 @@ export function createMissionsMcpServer(): McpServer {
     { payment_id: z.string() },
     async ({ payment_id }) => {
       try {
-        const actor = await companyActor();
         const payment = await retryPayout(actor, payment_id);
         return json({
           payment: paymentSummary(payment),
@@ -374,6 +375,10 @@ export function createMissionsMcpServer(): McpServer {
           : await getPaymentForMission(mission_id!);
         if (!payment) return json({ payment: null, payment_mode: process.env.PAYMENT_MODE === "live" ? "live" : "mock" });
         const mission = await getMission(payment.mission_id);
+        const claim = mission ? await getClaimForMission(mission.id) : null;
+        if (!mission || !canViewMission(actor, mission, claim?.developer_id)) {
+          return err("You do not have access to this payment");
+        }
         return json({
           payment: paymentSummary(payment),
           mission_id: payment.mission_id,

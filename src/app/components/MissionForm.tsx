@@ -6,6 +6,8 @@ import { FormError } from "./FormBanner";
 import { missionRewardIsLocked, DELIVERABLE_TYPES, type DeliverableType, type Mission } from "@/lib/domain/types";
 import { createMissionAction, updateMissionAction } from "@/app/actions/missions";
 import { DraftAssist } from "./DraftAssist";
+import { depositForBudget } from "@/lib/pricing";
+import { formatReward } from "@/lib/format";
 
 const labels: Record<DeliverableType, string> = {
   description: "Written description",
@@ -29,6 +31,7 @@ export function MissionForm({ mission }: { mission?: Mission }) {
     mission?.required_deliverables ?? ["repository", "demo", "linkedin"],
   );
   const rewardLocked = mission ? missionRewardIsLocked(mission) : false;
+  const deposit = depositForBudget(Number(reward) || 0);
 
   async function action(formData: FormData) {
     setError(null);
@@ -86,20 +89,26 @@ export function MissionForm({ mission }: { mission?: Mission }) {
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <label htmlFor="reward_amount">Reward amount</label>
+            <label htmlFor="reward_amount">Budget (developer reward)</label>
             <input
               id="reward_amount"
               name="reward_amount"
               type="number"
-              min="0.01"
+              min="1"
               step="0.01"
               required
               value={reward}
               onChange={(e) => setReward(e.target.value)}
               readOnly={rewardLocked}
             />
-            {rewardLocked && (
-              <p className="muted mt-1.5 text-xs">Reward is locked after funding.</p>
+            {rewardLocked ? (
+              <p className="muted mt-1.5 text-xs">Budget is locked after funding.</p>
+            ) : (
+              <p className="muted mt-1.5 text-xs">
+                Minimum 1 USDC. Deposit {formatReward(deposit.required)} to fund:{" "}
+                {formatReward(deposit.budget)} reward plus a {deposit.feePercent}% fee of{" "}
+                {formatReward(deposit.fee)}. After you save, this mission gets its own wallet address.
+              </p>
             )}
           </div>
           <div>

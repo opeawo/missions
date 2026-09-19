@@ -6,6 +6,7 @@ import {
   type Actor,
   type OtherLink,
   type Profile,
+  type UserRole,
 } from "./types";
 
 export async function getProfileById(id: string): Promise<Profile | null> {
@@ -13,6 +14,28 @@ export async function getProfileById(id: string): Promise<Profile | null> {
   const { data, error } = await admin.from("profiles").select("*").eq("id", id).maybeSingle();
   if (error) throw new DomainError(error.message, "db");
   return (data as Profile) ?? null;
+}
+
+export async function createProfile(input: {
+  id: string;
+  role: UserRole;
+  display_name: string;
+}): Promise<Profile> {
+  const display_name = input.display_name.trim();
+  if (!display_name) throw new DomainError("Display name is required", "validation");
+  if (input.role !== "company" && input.role !== "developer") {
+    throw new DomainError("Choose company or developer", "validation");
+  }
+  const admin = createAdminClient();
+  const existing = await getProfileById(input.id);
+  if (existing) return existing;
+  const { data, error } = await admin
+    .from("profiles")
+    .insert({ id: input.id, role: input.role, display_name })
+    .select("*")
+    .single();
+  if (error) throw new DomainError(error.message, "db");
+  return data as Profile;
 }
 
 export async function updateProfile(

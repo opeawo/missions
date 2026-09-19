@@ -5,7 +5,7 @@ const USDC_DECIMALS = 6;
 const MICROS_PER_USDC = 10n ** BigInt(USDC_DECIMALS);
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
-const DEFAULT_FEE_BPS = 1500;
+export const DEFAULT_FEE_BPS = 1500;
 
 export function paymentMode(): "mock" | "live" {
   return process.env.PAYMENT_MODE === "live" ? "live" : "mock";

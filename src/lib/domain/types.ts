@@ -172,11 +172,11 @@ export function missionIsEditable(mission: Pick<Mission, "status">): boolean {
   return mission.status === "draft" || mission.status === "open";
 }
 
-/** Reward is tied to funding and campaign budgets after the draft is saved into a campaign. */
+/** Companies can change a reward until funds have been committed to the mission. */
 export function missionRewardIsLocked(
-  mission: Pick<Mission, "status" | "campaign_id">,
+  mission: Pick<Mission, "funding_status">,
 ): boolean {
-  return Boolean(mission.campaign_id) || mission.status !== "draft";
+  return mission.funding_status !== "unfunded";
 }
 
 export function parseCampaign(row: Campaign): Campaign {

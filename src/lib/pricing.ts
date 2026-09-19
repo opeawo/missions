@@ -53,6 +53,17 @@ export const DEFAULT_PRICING: PricingConfig = {
   },
 };
 
+/** Matches the server default of PLATFORM_FEE_BPS. Used for deposit estimates in the browser. */
+export const PLATFORM_FEE_BPS = 1500;
+
+export function depositForBudget(budget: number, bps: number = PLATFORM_FEE_BPS) {
+  if (!Number.isFinite(budget) || budget <= 0) {
+    return { budget: 0, fee: 0, required: 0, feePercent: bps / 100 };
+  }
+  const fee = Math.floor((budget * bps) / 100) / 100;
+  return { budget, fee, required: budget + fee, feePercent: bps / 100 };
+}
+
 /** Server-side config hook: PRICING_CONFIG_JSON overrides any subset of the defaults. */
 export function resolvePricingConfig(raw?: string): PricingConfig {
   if (!raw) return DEFAULT_PRICING;
@@ -119,6 +130,39 @@ export function campaignBudget(
     low: roundTo(recommended * (2 / 3), config.roundTo),
     high: roundTo(recommended * (4 / 3), config.roundTo),
     averageReward: roundTo(average, config.roundTo),
+  };
+}
+
+/** Cost of opening one seat on each selected mission — the lowest budget that can launch. */
+export function firstWaveSpend(
+  efforts: EffortLevel[],
+  region: Region,
+  config: PricingConfig = DEFAULT_PRICING,
+): number {
+  return firstWaveSpendFromRewards(efforts.map((effort) => missionReward(effort, region, config)));
+}
+
+/** Sum of the rewards the company actually set on each included mission. */
+export function firstWaveSpendFromRewards(rewards: number[]): number {
+  return Math.round(rewards.reduce((sum, reward) => sum + (Number.isFinite(reward) && reward > 0 ? reward : 0), 0) * 100) / 100;
+}
+
+/**
+ * Budget from the rewards on the selected missions, not the effort table.
+ * Lets a $1 demo stay a $1 demo instead of rounding back up to the $100 floor.
+ */
+export function campaignBudgetFromRewards(
+  rewards: number[],
+  developerCount: number,
+): BudgetEstimate {
+  const valid = rewards.filter((reward) => Number.isFinite(reward) && reward >= 1);
+  const average = valid.length ? valid.reduce((sum, reward) => sum + reward, 0) / valid.length : 1;
+  const recommended = Math.round(developerCount * average * 100) / 100;
+  return {
+    recommended,
+    low: Math.round(recommended * (2 / 3) * 100) / 100,
+    high: Math.round(recommended * (4 / 3) * 100) / 100,
+    averageReward: Math.round(average * 100) / 100,
   };
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   provisionMissionWalletAction,
   sweepMissionWalletAction,
@@ -9,6 +9,7 @@ import type { MissionFunding, MissionSweep, Refund } from "@/lib/domain";
 import { formatReward, truncateWallet } from "@/lib/format";
 import { SubmitButton } from "./SubmitButton";
 import { FormError, FormSuccess } from "./FormBanner";
+import { DepositAddress } from "./DepositAddress";
 
 export function MissionWalletPanel({
   missionId,
@@ -32,6 +33,18 @@ export function MissionWalletPanel({
     const result = await provisionMissionWalletAction(missionId);
     if (result && "error" in result) setError(result.error);
   }
+
+  useEffect(() => {
+    if (funding.address) return;
+    let cancelled = false;
+    void provisionMissionWalletAction(missionId).then((result) => {
+      if (cancelled) return;
+      if (result && "error" in result) setError(result.error);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [funding.address, missionId]);
 
   async function sweepFunds() {
     setError(null);
@@ -57,10 +70,7 @@ export function MissionWalletPanel({
 
       {funding.address ? (
         <>
-          <div className="rounded-field border border-line bg-background px-3 py-2.5">
-            <p className="muted text-xs uppercase tracking-wide">Deposit address (Base USDC)</p>
-            <p className="mt-1 break-all font-mono text-sm">{funding.address}</p>
-          </div>
+          <DepositAddress address={funding.address} />
           <dl className="grid gap-4 sm:grid-cols-3">
             <div>
               <dt className="muted text-xs uppercase tracking-wide">Balance</dt>

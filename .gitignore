@@ -37,7 +37,7 @@ yarn-error.log*
 # vercel
 .vercel
 
-# cursor mcp config holds the service role key and MISSIONS_MCP_KEY
+# local Cursor MCP configuration
 .cursor/mcp.json
 
 # typescript
