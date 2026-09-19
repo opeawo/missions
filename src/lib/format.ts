@@ -1,7 +1,7 @@
 export function formatReward(amount: number | string, currency = "USDC"): string {
   const n = typeof amount === "string" ? Number(amount) : amount;
   if (Number.isNaN(n)) return `${amount} ${currency}`;
-  return `${n.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${currency}`;
+  return `${n.toLocaleString("en-US", { maximumFractionDigits: 2 })} ${currency}`;
 }
 
 export function formatDate(iso: string | null): string {

@@ -1,3 +1,7 @@
 export default function Loading() {
-  return <p className="muted">Loading…</p>;
+  return (
+    <div className="container-editorial py-16">
+      <p className="muted text-sm">Loading…</p>
+    </div>
+  );
 }

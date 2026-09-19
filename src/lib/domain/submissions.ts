@@ -125,6 +125,34 @@ export async function listSubmissions(missionId: string): Promise<Submission[]> 
   return (data as Submission[]) ?? [];
 }
 
+export type CompanySubmissionRow = Submission & { mission_title: string };
+
+export async function listCompanySubmissions(companyId: string): Promise<CompanySubmissionRow[]> {
+  const admin = createAdminClient();
+  const { data: missions, error: missionError } = await admin
+    .from("missions")
+    .select("id, title")
+    .eq("company_id", companyId);
+  if (missionError) throw new DomainError(missionError.message, "db");
+  const rows = (missions ?? []) as { id: string; title: string }[];
+  if (rows.length === 0) return [];
+
+  const titles = new Map(rows.map((m) => [m.id, m.title]));
+  const { data, error } = await admin
+    .from("submissions")
+    .select("*")
+    .in(
+      "mission_id",
+      rows.map((m) => m.id),
+    )
+    .order("submitted_at", { ascending: false });
+  if (error) throw new DomainError(error.message, "db");
+  return ((data as Submission[]) ?? []).map((submission) => ({
+    ...submission,
+    mission_title: titles.get(submission.mission_id) ?? "Mission",
+  }));
+}
+
 export async function getSubmission(id: string): Promise<Submission | null> {
   const admin = createAdminClient();
   const { data, error } = await admin.from("submissions").select("*").eq("id", id).maybeSingle();

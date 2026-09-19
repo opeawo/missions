@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { SubmitButton } from "./SubmitButton";
 import { FormError } from "./FormBanner";
-import { DELIVERABLE_TYPES, type DeliverableType, type Mission } from "@/lib/domain/types";
+import { missionRewardIsLocked, DELIVERABLE_TYPES, type DeliverableType, type Mission } from "@/lib/domain/types";
 import { createMissionAction, updateMissionAction } from "@/app/actions/missions";
 import { DraftAssist } from "./DraftAssist";
 
@@ -28,6 +28,7 @@ export function MissionForm({ mission }: { mission?: Mission }) {
   const [selected, setSelected] = useState<string[]>(
     mission?.required_deliverables ?? ["repository", "demo", "linkedin"],
   );
+  const rewardLocked = mission ? missionRewardIsLocked(mission) : false;
 
   async function action(formData: FormData) {
     setError(null);
@@ -50,11 +51,17 @@ export function MissionForm({ mission }: { mission?: Mission }) {
           }}
         />
       )}
-      <form action={action} className="card space-y-4">
+      <form action={action} className="card space-y-5">
         <FormError error={error} />
         <div>
           <label htmlFor="title">Title</label>
-          <input id="title" name="title" required value={title} onChange={(e) => setTitle(e.target.value)} />
+          <input
+            id="title"
+            name="title"
+            required
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+          />
         </div>
         <div>
           <label htmlFor="description">Description</label>
@@ -89,11 +96,20 @@ export function MissionForm({ mission }: { mission?: Mission }) {
               required
               value={reward}
               onChange={(e) => setReward(e.target.value)}
+              readOnly={rewardLocked}
             />
+            {rewardLocked && (
+              <p className="muted mt-1.5 text-xs">Reward is locked after funding.</p>
+            )}
           </div>
           <div>
             <label htmlFor="currency">Currency</label>
-            <input id="currency" name="currency" defaultValue={mission?.reward_currency ?? "USDC"} />
+            <input
+              id="currency"
+              name="currency"
+              defaultValue={mission?.reward_currency ?? "USDC"}
+              readOnly={rewardLocked}
+            />
           </div>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -115,28 +131,39 @@ export function MissionForm({ mission }: { mission?: Mission }) {
           </div>
         </div>
         <fieldset>
-          <legend className="mb-2 text-sm muted">Required deliverables</legend>
+          <legend className="mb-3 text-label text-muted-foreground">Required deliverables</legend>
           <div className="grid gap-2 sm:grid-cols-2">
-            {DELIVERABLE_TYPES.map((d) => (
-              <label key={d} className="flex items-center gap-2 text-[var(--fg)]">
-                <input
-                  type="checkbox"
-                  name="deliverables"
-                  value={d}
-                  checked={selected.includes(d)}
-                  onChange={(e) => {
-                    setSelected((prev) =>
-                      e.target.checked ? [...prev, d] : prev.filter((x) => x !== d),
-                    );
-                  }}
-                  className="w-auto"
-                />
-                <span>{labels[d]}</span>
-              </label>
-            ))}
+            {DELIVERABLE_TYPES.map((d) => {
+              const checked = selected.includes(d);
+              return (
+                <label
+                  key={d}
+                  className={`mb-0 flex cursor-pointer items-center gap-2.5 border px-3 py-2.5 text-sm transition-colors ${
+                    checked
+                      ? "border-accent/40 bg-accent/5 text-foreground"
+                      : "border-border text-foreground hover:border-foreground"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    name="deliverables"
+                    value={d}
+                    checked={checked}
+                    onChange={(e) => {
+                      setSelected((prev) =>
+                        e.target.checked ? [...prev, d] : prev.filter((x) => x !== d),
+                      );
+                    }}
+                  />
+                  <span>{labels[d]}</span>
+                </label>
+              );
+            })}
           </div>
         </fieldset>
-        <SubmitButton>{mission ? "Save draft" : "Create draft"}</SubmitButton>
+        <div className="border-t border-line pt-4">
+          <SubmitButton>{mission ? "Save changes" : "Create draft"}</SubmitButton>
+        </div>
       </form>
     </div>
   );

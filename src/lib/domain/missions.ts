@@ -1,8 +1,12 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { notifyMissionPublished } from "./discord";
+import { ensureMissionWallet, fundMission } from "./funding";
 import {
   DELIVERABLE_TYPES,
   DomainError,
+  missionIsEditable,
+  missionRewardIsLocked,
+  parseMission,
   type Actor,
   type DeliverableType,
   type Mission,
@@ -18,6 +22,7 @@ export type CreateMissionInput = {
   required_deliverables?: string[];
   visibility?: MissionVisibility;
   deadline?: string | null;
+  campaign_id?: string | null;
 };
 
 function assertCompany(actor: Actor) {
@@ -29,14 +34,6 @@ function assertCompany(actor: Actor) {
 function normalizeDeliverables(list: string[] | undefined): DeliverableType[] {
   const allowed = new Set<string>(DELIVERABLE_TYPES);
   return (list ?? []).filter((d): d is DeliverableType => allowed.has(d));
-}
-
-function parseMission(row: Mission): Mission {
-  return {
-    ...row,
-    reward_amount: Number(row.reward_amount),
-    required_deliverables: (row.required_deliverables ?? []) as DeliverableType[],
-  };
 }
 
 export async function createMission(
@@ -68,19 +65,27 @@ export async function createMission(
       requirements: input.requirements?.trim() || "",
       required_deliverables: normalizeDeliverables(input.required_deliverables),
       visibility,
-      status: autoPublish ? "open" : "draft",
+      status: "draft",
       deadline: input.deadline || null,
-      published_at: autoPublish ? new Date().toISOString() : null,
+      campaign_id: input.campaign_id || null,
     })
     .select("*")
     .single();
   if (error) throw new DomainError(error.message, "db");
 
   let mission = parseMission(data as Mission);
-  if (autoPublish && visibility === "public") {
-    mission = await postDiscordIfNeeded(mission);
+
+  // Campaign missions are funded from the campaign wallet, not a per-mission one.
+  if (!mission.campaign_id) {
+    try {
+      mission = await ensureMissionWallet(actor, mission.id);
+    } catch {
+      // Left unprovisioned; ensureMissionWallet runs again on demand.
+    }
   }
-  return mission;
+
+  // Publishing charges the platform fee, so auto-publish goes through the same gate.
+  return autoPublish ? await publishMission(actor, mission.id) : mission;
 }
 
 async function postDiscordIfNeeded(mission: Mission): Promise<Mission> {
@@ -107,18 +112,21 @@ export async function updateMission(
   const existing = await getMission(id);
   if (!existing) throw new DomainError("Mission not found", "not_found");
   if (existing.company_id !== actor.id) throw new DomainError("Not your mission", "forbidden");
-  if (existing.status !== "draft") {
-    throw new DomainError("Only draft missions can be edited", "invalid_state");
+  if (!missionIsEditable(existing)) {
+    throw new DomainError("This mission can no longer be edited", "invalid_state");
   }
 
+  const rewardLocked = missionRewardIsLocked(existing);
   const admin = createAdminClient();
   const { data, error } = await admin
     .from("missions")
     .update({
       title: input.title.trim(),
       description: input.description.trim(),
-      reward_amount: input.reward_amount,
-      reward_currency: input.currency || existing.reward_currency,
+      reward_amount: rewardLocked ? existing.reward_amount : input.reward_amount,
+      reward_currency: rewardLocked
+        ? existing.reward_currency
+        : input.currency || existing.reward_currency,
       requirements: input.requirements?.trim() || "",
       required_deliverables: normalizeDeliverables(input.required_deliverables),
       visibility: input.visibility ?? existing.visibility,
@@ -139,6 +147,9 @@ export async function publishMission(actor: Actor, id: string): Promise<Mission>
   if (existing.status !== "draft") {
     throw new DomainError("Mission is already published", "invalid_state");
   }
+
+  // Organizations pay the platform fee before the work is visible to developers.
+  await fundMission(actor, id);
 
   const admin = createAdminClient();
   const { data, error } = await admin

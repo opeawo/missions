@@ -67,7 +67,7 @@ export function ProfileForm({ profile }: { profile: Profile }) {
             <input id="substack_url" name="substack_url" defaultValue={profile.substack_url ?? ""} />
           </div>
           <div className="space-y-2">
-            <p className="text-sm muted">Other links</p>
+            <p className="muted text-sm">Other links</p>
             {extra.map((l, i) => (
               <div key={i} className="grid gap-2 sm:grid-cols-2">
                 <input name="link_label" placeholder="Label" defaultValue={l.label} />
@@ -77,7 +77,9 @@ export function ProfileForm({ profile }: { profile: Profile }) {
           </div>
         </>
       )}
-      <SubmitButton>Save profile</SubmitButton>
+      <div className="border-t border-line pt-4">
+        <SubmitButton>Save profile</SubmitButton>
+      </div>
     </form>
   );
 }

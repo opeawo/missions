@@ -12,9 +12,13 @@ export default function LoginPage() {
     if (result?.error) setError(result.error);
   }
   return (
-    <div className="mx-auto max-w-md space-y-6">
-      <h1 className="text-3xl font-semibold">Sign in</h1>
-      <p className="muted">Company and developer demo accounts live in your local env.</p>
+    <div className="container-editorial mx-auto max-w-md space-y-8 py-16">
+      <div>
+        <h1 className="text-section">Sign in</h1>
+        <p className="text-lead mt-3">
+          Company and developer demo accounts live in your local env.
+        </p>
+      </div>
       <form action={action} className="card space-y-4">
         <FormError error={error} />
         <div>
@@ -23,9 +27,15 @@ export default function LoginPage() {
         </div>
         <div>
           <label htmlFor="password">Password</label>
-          <input id="password" name="password" type="password" required autoComplete="current-password" />
+          <input
+            id="password"
+            name="password"
+            type="password"
+            required
+            autoComplete="current-password"
+          />
         </div>
-        <SubmitButton>Sign in</SubmitButton>
+        <SubmitButton className="btn-primary w-full">Sign in</SubmitButton>
       </form>
     </div>
   );

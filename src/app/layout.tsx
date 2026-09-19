@@ -1,17 +1,27 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { IBM_Plex_Mono, IBM_Plex_Sans, Libre_Caslon_Text } from "next/font/google";
 import "./globals.css";
-import { Header } from "./components/Header";
+import { SiteNav } from "./components/SiteNav";
+import { SiteFooter } from "./components/SiteFooter";
 import { getProfile } from "@/lib/auth";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const libreCaslon = Libre_Caslon_Text({
+  variable: "--font-libre-caslon",
   subsets: ["latin"],
+  weight: ["400", "700"],
+  style: ["normal", "italic"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const plexSans = IBM_Plex_Sans({
+  variable: "--font-plex-sans",
   subsets: ["latin"],
+  weight: ["300", "400", "500"],
+});
+
+const plexMono = IBM_Plex_Mono({
+  variable: "--font-plex-mono",
+  subsets: ["latin"],
+  weight: ["400"],
 });
 
 export const metadata: Metadata = {
@@ -24,10 +34,14 @@ export const dynamic = "force-dynamic";
 export default async function RootLayout({ children }: LayoutProps<"/">) {
   const profile = await getProfile().catch(() => null);
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col font-sans">
-        <Header profile={profile} />
-        <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8">{children}</main>
+    <html
+      lang="en"
+      className={`${libreCaslon.variable} ${plexSans.variable} ${plexMono.variable} h-full`}
+    >
+      <body className="flex min-h-full flex-col">
+        <SiteNav profile={profile} />
+        <main className="flex-1">{children}</main>
+        <SiteFooter />
       </body>
     </html>
   );

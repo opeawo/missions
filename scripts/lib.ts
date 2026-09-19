@@ -79,6 +79,9 @@ export async function seed(options?: { resetMissions?: boolean }) {
 
   let missionId = existing?.id as string | undefined;
   if (!missionId) {
+    const reward = 25;
+    const feeBps = Number(process.env.PLATFORM_FEE_BPS || 1500);
+    const fee = (reward * feeBps) / 10000;
     const { data, error } = await admin
       .from("missions")
       .insert({
@@ -86,7 +89,7 @@ export async function seed(options?: { resetMissions?: boolean }) {
         title: "Ship a public Northstar example",
         description:
           "Build a compelling real-world example using our product, deploy it, and write a public post explaining what you built and why it matters.",
-        reward_amount: 25,
+        reward_amount: reward,
         reward_currency: "USDC",
         requirements:
           "Working demo, public repo, and a LinkedIn post. Keep the writeup concrete: problem, what you built, screenshot or clip.",
@@ -94,6 +97,13 @@ export async function seed(options?: { resetMissions?: boolean }) {
         visibility: "public",
         status: "open",
         published_at: new Date().toISOString(),
+        // Inserted directly, so mark the fee as already charged for the demo.
+        funding_status: "funded",
+        platform_fee_bps: feeBps,
+        platform_fee_amount: fee,
+        gross_amount: reward + fee,
+        fee_transaction_hash: "seed_fee",
+        funded_at: new Date().toISOString(),
       })
       .select("id")
       .single();

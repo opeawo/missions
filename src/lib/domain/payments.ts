@@ -1,50 +1,34 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getCampaign } from "./campaigns";
+import { fundMission, releaseMissionFunding } from "./funding";
 import { getMission, setMissionStatus } from "./missions";
 import { getProfileById } from "./profiles";
 import { getSubmission } from "./submissions";
 import { getPaymentForSubmission } from "./payment-queries";
-import { DomainError, type Actor, type Payment } from "./types";
+import { DomainError, type Actor, type Mission, type Payment } from "./types";
+import { assertAddress, paymentMode, sendUsdcFrom, toMicros } from "./wallets";
 
-const BASE_USDC = process.env.USDC_ADDRESS || "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
-
-function paymentMode(): "mock" | "live" {
-  return process.env.PAYMENT_MODE === "live" ? "live" : "mock";
-}
-
-async function sendUsdc(to: string, amount: number): Promise<{ hash: string; chain: string }> {
+/**
+ * Standalone missions pay from their own wallet. Campaign missions pay from the
+ * campaign pool so the company funds once.
+ */
+async function payDeveloper(
+  mission: Mission,
+  to: string,
+  amount: number,
+): Promise<{ hash: string; chain: string }> {
   if (paymentMode() === "mock") {
     return { hash: `mock_${Date.now()}`, chain: "base" };
   }
 
-  const secretKey = process.env.THIRDWEB_SECRET_KEY;
-  const privateKey = process.env.PAYOUT_WALLET_PRIVATE_KEY;
-  if (!secretKey || !privateKey) {
-    throw new DomainError(
-      "Live payouts require THIRDWEB_SECRET_KEY and PAYOUT_WALLET_PRIVATE_KEY",
-      "payout_config",
-    );
+  let from: string | null = mission.deposit_address;
+  if (mission.campaign_id) {
+    const campaign = await getCampaign(mission.campaign_id);
+    from = campaign?.deposit_address ?? null;
   }
-
-  const { createThirdwebClient, sendAndConfirmTransaction } = await import("thirdweb");
-  const { privateKeyToAccount } = await import("thirdweb/wallets");
-  const { base } = await import("thirdweb/chains");
-  const { getContract } = await import("thirdweb");
-  const { transfer } = await import("thirdweb/extensions/erc20");
-
-  const client = createThirdwebClient({ secretKey });
-  const account = privateKeyToAccount({ client, privateKey });
-  const contract = getContract({
-    client,
-    chain: base,
-    address: BASE_USDC,
-  });
-  const transaction = transfer({
-    contract,
-    to,
-    amount: String(amount),
-  });
-  const receipt = await sendAndConfirmTransaction({ account, transaction });
-  return { hash: receipt.transactionHash, chain: "base" };
+  const sender = assertAddress(from, mission.campaign_id ? "Campaign wallet" : "Mission wallet");
+  const hash = await sendUsdcFrom(sender, [{ to, amountMicros: toMicros(amount) }]);
+  return { hash, chain: "base" };
 }
 
 export async function approveSubmission(actor: Actor, submissionId: string): Promise<{
@@ -75,6 +59,9 @@ export async function approveSubmission(actor: Actor, submissionId: string): Pro
   if (existingPay?.status === "paid") {
     throw new DomainError("Payout already completed", "duplicate_payout");
   }
+
+  // A mission that was never charged is charged here, so the fee is never skipped.
+  const funded = await fundMission(actor, mission.id);
 
   const admin = createAdminClient();
   let payment: Payment;
@@ -111,7 +98,11 @@ export async function approveSubmission(actor: Actor, submissionId: string): Pro
   await admin.from("payments").update({ status: "processing", error: null }).eq("id", payment.id);
 
   try {
-    const { hash, chain } = await sendUsdc(developer.wallet_address, Number(mission.reward_amount));
+    const { hash, chain } = await payDeveloper(
+      funded,
+      developer.wallet_address,
+      Number(mission.reward_amount),
+    );
     const { data: paid, error: payErr } = await admin
       .from("payments")
       .update({
@@ -126,6 +117,7 @@ export async function approveSubmission(actor: Actor, submissionId: string): Pro
     if (payErr) throw new DomainError(payErr.message, "db");
 
     await admin.from("submissions").update({ status: "approved" }).eq("id", submission.id);
+    await releaseMissionFunding(mission.id);
     await setMissionStatus(mission.id, "completed");
     return {
       submission: { id: submission.id, status: "approved" },
@@ -167,7 +159,11 @@ export async function retryPayout(actor: Actor, paymentId: string): Promise<Paym
 
   await admin.from("payments").update({ status: "processing", error: null }).eq("id", paymentId);
   try {
-    const { hash, chain } = await sendUsdc(typed.wallet_address, Number(typed.amount));
+    const { hash, chain } = await payDeveloper(
+      mission,
+      typed.wallet_address,
+      Number(typed.amount),
+    );
     const { data: paid, error: payErr } = await admin
       .from("payments")
       .update({ status: "paid", transaction_hash: hash, chain, error: null })
@@ -176,6 +172,7 @@ export async function retryPayout(actor: Actor, paymentId: string): Promise<Paym
       .single();
     if (payErr) throw new DomainError(payErr.message, "db");
     await admin.from("submissions").update({ status: "approved" }).eq("id", typed.submission_id);
+    await releaseMissionFunding(typed.mission_id);
     await setMissionStatus(typed.mission_id, "completed");
     return paid as Payment;
   } catch (err) {

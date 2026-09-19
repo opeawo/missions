@@ -53,13 +53,15 @@ export function SubmitWorkForm({ mission }: { mission: Mission }) {
     else setOk("Submission received. Waiting for company review.");
   }
   return (
-    <form action={action} className="card space-y-3">
-      <h2 className="text-lg font-semibold">Submit work</h2>
+    <form action={action} className="card space-y-4">
+      <div>
+        <h2 className="font-medium tracking-tight">Submit work</h2>
+        <p className="muted mt-1 text-sm">
+          Required: {mission.required_deliverables.join(", ") || "none specified"}
+        </p>
+      </div>
       <FormError error={error} />
       <FormSuccess message={ok} />
-      <p className="muted text-sm">
-        Required: {mission.required_deliverables.join(", ") || "none specified"}
-      </p>
       <div>
         <label htmlFor="description">Description</label>
         <textarea id="description" name="description" rows={4} />
@@ -95,7 +97,9 @@ export function SubmitWorkForm({ mission }: { mission: Mission }) {
           <input id="attachment_url" name="attachment_url" />
         </div>
       </div>
-      <SubmitButton>Submit evidence</SubmitButton>
+      <div className="border-t border-line pt-4">
+        <SubmitButton>Submit evidence</SubmitButton>
+      </div>
     </form>
   );
 }
@@ -128,53 +132,32 @@ export function ReviewPanel({
 
   return (
     <div className="card space-y-4">
-      <h2 className="text-lg font-semibold">Submission</h2>
+      <div className="flex items-center justify-between gap-4">
+        <h2 className="font-medium tracking-tight">Submission</h2>
+        <span className="badge" data-status={submission.status}>
+          {submission.status}
+        </span>
+      </div>
       <FormError error={error} />
       {payment?.status === "paid" && (
         <FormSuccess message={`Paid. Tx ${payment.transaction_hash}`} />
       )}
-      {payment?.status === "failed" && (
-        <FormError error={payment.error || "Payout failed"} />
-      )}
-      <p>{submission.description}</p>
-      <ul className="space-y-1 text-sm">
-        {submission.repository_url && (
-          <li>
-            Repo:{" "}
-            <a className="text-[var(--accent)]" href={submission.repository_url}>
-              {submission.repository_url}
-            </a>
-          </li>
-        )}
-        {submission.demo_url && (
-          <li>
-            Demo:{" "}
-            <a className="text-[var(--accent)]" href={submission.demo_url}>
-              {submission.demo_url}
-            </a>
-          </li>
-        )}
-        {submission.video_url && (
-          <li>
-            Video:{" "}
-            <a className="text-[var(--accent)]" href={submission.video_url}>
-              {submission.video_url}
-            </a>
-          </li>
-        )}
+      {payment?.status === "failed" && <FormError error={payment.error || "Payout failed"} />}
+      <p className="whitespace-pre-wrap text-sm leading-relaxed">{submission.description}</p>
+      <ul className="space-y-1.5 text-sm">
+        <EvidenceLink label="Repo" href={submission.repository_url} />
+        <EvidenceLink label="Demo" href={submission.demo_url} />
+        <EvidenceLink label="Video" href={submission.video_url} />
         {submission.post_urls?.map((u) => (
-          <li key={u}>
-            Post:{" "}
-            <a className="text-[var(--accent)]" href={u}>
-              {u}
-            </a>
-          </li>
+          <EvidenceLink key={u} label="Post" href={u} />
         ))}
       </ul>
       {urls.length > 0 && (
-        <div>
-          <h3 className="text-sm font-medium">Automatic checks</h3>
-          <ul className="mt-2 space-y-1 text-sm muted">
+        <div className="border-t border-line pt-4">
+          <h3 className="text-label text-muted-foreground">
+            Automatic checks
+          </h3>
+          <ul className="muted mt-2 space-y-1 text-sm">
             {urls.map((u) => (
               <li key={u.url}>
                 {verificationLabel(u.status)} — {u.type}: {u.detail}
@@ -185,20 +168,37 @@ export function ReviewPanel({
         </div>
       )}
       {submission.status === "pending" && (
-        <div className="flex gap-3">
+        <div className="flex flex-wrap items-center gap-2 border-t border-line pt-4">
           <form action={approve}>
             <SubmitButton>Approve and pay</SubmitButton>
           </form>
           <form action={reject}>
-            <SubmitButton className="btn-ghost">Reject</SubmitButton>
+            <SubmitButton className="btn-quiet">Reject</SubmitButton>
           </form>
         </div>
       )}
       {payment?.status === "failed" && (
         <form action={retry}>
-          <SubmitButton>Retry payout</SubmitButton>
+          <SubmitButton className="btn-ghost">Retry payout</SubmitButton>
         </form>
       )}
     </div>
+  );
+}
+
+function EvidenceLink({ label, href }: { label: string; href: string | null }) {
+  if (!href) return null;
+  return (
+    <li className="flex gap-2">
+      <span className="muted w-14 shrink-0">{label}</span>
+      <a
+        className="truncate text-accent underline-offset-4 hover:underline"
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+      >
+        {href}
+      </a>
+    </li>
   );
 }

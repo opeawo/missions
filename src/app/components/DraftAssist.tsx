@@ -22,11 +22,14 @@ export function DraftAssist({ onApply }: { onApply: (draft: MissionDraft) => voi
 
   return (
     <div className="card">
-      <button type="button" className="btn-ghost text-sm" onClick={() => setOpen((v) => !v)}>
-        {open ? "Hide AI assist" : "Draft with AI"}
-      </button>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="muted text-sm">Start from a prompt instead of a blank form.</p>
+        <button type="button" className="btn-ghost btn-sm" onClick={() => setOpen((v) => !v)}>
+          {open ? "Hide AI assist" : "Draft with AI"}
+        </button>
+      </div>
       {open && (
-        <form action={action} className="mt-4 space-y-3">
+        <form action={action} className="mt-5 space-y-4 border-t border-line pt-5">
           <FormError error={error} />
           <div>
             <label htmlFor="instruction">Instruction</label>

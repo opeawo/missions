@@ -5,7 +5,12 @@ import type { DeveloperCard as Card } from "@/lib/domain/types";
 function LinkItem({ href, label }: { href: string | null; label: string }) {
   if (!href) return null;
   return (
-    <a className="text-[var(--accent)] underline-offset-2 hover:underline" href={href} target="_blank" rel="noreferrer">
+    <a
+      className="text-accent underline-offset-4 hover:underline"
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+    >
       {label}
     </a>
   );
@@ -13,11 +18,15 @@ function LinkItem({ href, label }: { href: string | null; label: string }) {
 
 export function DeveloperCard({ developer, showWallet }: { developer: Card; showWallet?: boolean }) {
   return (
-    <div className="card space-y-2">
-      <div className="text-sm muted">Developer</div>
-      <div className="text-lg font-semibold">{developer.display_name}</div>
-      {developer.country && <p className="muted text-sm">{countryName(developer.country)}</p>}
-      <div className="flex flex-wrap gap-3 text-sm">
+    <div className="card space-y-3">
+      <div>
+        <p className="muted text-xs uppercase tracking-wide">Developer</p>
+        <p className="mt-1.5 font-medium tracking-tight">{developer.display_name}</p>
+        {developer.country && (
+          <p className="muted mt-0.5 text-sm">{countryName(developer.country)}</p>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-sm">
         <LinkItem href={developer.github_url} label="GitHub" />
         <LinkItem href={developer.linkedin_url} label="LinkedIn" />
         <LinkItem href={developer.x_url} label="X" />

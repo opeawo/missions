@@ -1,5 +1,5 @@
 import { getProfile } from "@/lib/auth";
-import { MissionForm } from "../../components/MissionForm";
+import { CreateCampaignWizard } from "../../components/CreateCampaignWizard";
 import { redirect } from "next/navigation";
 
 export default async function NewMissionPage() {
@@ -7,10 +7,8 @@ export default async function NewMissionPage() {
   if (!profile) redirect("/login");
   if (profile.role !== "company") redirect("/");
   return (
-    <div className="space-y-6">
-      <h1 className="text-3xl font-semibold">Create a mission</h1>
-      <p className="muted">Saved as a draft. Publish when you want it live (and on Discord if public).</p>
-      <MissionForm />
+    <div className="container-editorial py-16 md:py-24">
+      <CreateCampaignWizard />
     </div>
   );
 }
