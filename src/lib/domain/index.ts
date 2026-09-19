@@ -14,7 +14,8 @@ export {
   rejectSubmission,
   type CompanySubmissionRow,
 } from "./submissions";
-export { getPaymentForMission } from "./payment-queries";
+export { getPaymentForMission, getPaymentForSubmission } from "./payment-queries";
+export { approveSubmission, retryPayout } from "./payments";
 export { getProfileById, updateProfile, toDeveloperCard } from "./profiles";
 export {
   ensureMissionWallet,

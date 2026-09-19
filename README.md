@@ -37,7 +37,7 @@ cp .env.example .env.local
 - `DEMO_DEVELOPER_EMAIL` / `DEMO_DEVELOPER_PASSWORD`
 - `DEMO_DEVELOPER_WALLET` (Base address that should receive USDC)
 - `MISSIONS_MCP_KEY` (any long random string; Cursor must use the same value)
-- `PAYMENT_MODE=mock` until live payouts
+- `PAYMENT_MODE=mock` until live payouts. Only `live` sends real USDC on Base; any other value (including unset) stays mock.
 - Optional: `DISCORD_WEBHOOK_URL`, `THIRDWEB_SECRET_KEY`, `PLATFORM_MASTER_WALLET_ADDRESS`, `OPENAI_API_KEY`
 
 4. Create demo identities and the sample Mission:
@@ -66,36 +66,58 @@ npm run reset
 
 ## Cursor MCP
 
-Add to Cursor MCP settings (project or user):
+The product loop is meant to be driven as tool calls, not a marketing site:
+
+`create_mission → list/get → claim_mission → submit_mission → list_reviews / get_submissions → approve_submission | reject_submission → get_payment`
+
+Copy [`.cursor/mcp.json.example`](.cursor/mcp.json.example) to `.cursor/mcp.json` (gitignored) and point `cwd` at this checkout. `npm run mcp` loads `.env.local`, including production Supabase on this machine, so the tools write to the live service. Mission links use `NEXT_PUBLIC_APP_URL` (default `https://missions.cv`).
 
 ```json
 {
   "mcpServers": {
     "missions": {
-      "command": "npx",
-      "args": ["tsx", "mcp/index.ts"],
-      "cwd": "/ABSOLUTE/PATH/TO/missions",
-      "env": {
-        "NEXT_PUBLIC_SUPABASE_URL": "same as .env.local",
-        "NEXT_PUBLIC_SUPABASE_ANON_KEY": "same",
-        "SUPABASE_SERVICE_ROLE_KEY": "same",
-        "NEXT_PUBLIC_APP_URL": "http://localhost:3000",
-        "DEMO_COMPANY_EMAIL": "company@missions.dev",
-        "DEMO_DEVELOPER_EMAIL": "developer@missions.dev",
-        "MISSIONS_MCP_KEY": "same as .env.local",
-        "DISCORD_WEBHOOK_URL": "optional",
-        "PAYMENT_MODE": "mock"
+      "command": "npm",
+      "args": ["run", "mcp"],
+      "cwd": "/ABSOLUTE/PATH/TO/missions"
+    }
+  }
+}
+```
+
+If you would rather inline env instead of `--env-file=.env.local`, set at least:
+
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `NEXT_PUBLIC_APP_URL` (`https://missions.cv` against production)
+- `DEMO_COMPANY_EMAIL`
+- `DEMO_DEVELOPER_EMAIL`
+- `MISSIONS_MCP_KEY`
+- `PAYMENT_MODE` (`mock` until live USDC)
+
+Reload MCP in Cursor after saving the config.
+
+**Hosted / other harnesses.** Stdio is what Cursor runs today. Streamable HTTP lives at `POST https://missions.cv/api/mcp` with `Authorization: Bearer YOUR_MISSIONS_MCP_KEY` (same value as `MISSIONS_MCP_KEY`). That route is in this repo; it is only on production after the next deploy that includes it. Until then, Cursor should use the stdio config above.
+
+```json
+{
+  "mcpServers": {
+    "missions": {
+      "url": "https://missions.cv/api/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_MISSIONS_MCP_KEY"
       }
     }
   }
 }
 ```
 
-Or run `npm run mcp` after env is loaded.
+Tools: `create_mission` (auto-publishes), `get_mission`, `list_missions`, `claim_mission`, `submit_mission`, `get_submissions`, `list_reviews`, `approve_submission`, `reject_submission`, `retry_payout`, `get_payment`.
 
-Tools: `create_mission` (auto-publishes), `get_mission`, `list_missions`, `claim_mission`, `submit_mission`, `get_submissions`, `approve_submission`.
+Prove the loop against the env in `.env.local`:
 
-The live demo story is: agent creates work (`create_mission`), human claims and submits on the web, company approves (web or `approve_submission`).
+```bash
+npm run mcp:proof
+```
 
 ## Payments
 

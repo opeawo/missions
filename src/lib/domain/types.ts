@@ -217,7 +217,7 @@ export function blankToNull(value: string | null | undefined): string | null {
 }
 
 export function missionUrl(id: string): string {
-  const base = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || "http://localhost:3000";
+  const base = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || "https://missions.cv";
   return `${base}/missions/${id}`;
 }
 

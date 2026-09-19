@@ -13,7 +13,7 @@ export async function notifyMissionPublished(mission: Mission): Promise<string |
   const webhook = process.env.DISCORD_WEBHOOK_URL;
   if (!webhook) return null;
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || "http://localhost:3000";
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || "https://missions.cv";
   const deliverables =
     mission.required_deliverables?.length > 0
       ? mission.required_deliverables.join(", ")
