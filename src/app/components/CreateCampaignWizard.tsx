@@ -331,6 +331,14 @@ function ScreenTwo({
                 />
               </div>
               <div>
+                <label htmlFor={`mission-user-${index}`}>Target user</label>
+                <input
+                  id={`mission-user-${index}`}
+                  value={idea.target_user}
+                  onChange={(e) => onChange(index, { target_user: e.target.value })}
+                />
+              </div>
+              <div>
                 <label htmlFor={`mission-pitch-${index}`}>Pitch</label>
                 <textarea
                   id={`mission-pitch-${index}`}

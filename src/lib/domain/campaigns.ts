@@ -289,7 +289,7 @@ export async function launchCampaign(
     required_deliverables: idea.required_deliverables,
     reward_amount: missionReward(idea.effort, input.geography, config),
     reward_currency: "USDC",
-    visibility: "public" as const,
+    visibility: idea.visibility === "private" ? ("private" as const) : ("public" as const),
     status: "draft" as const,
   }));
 
