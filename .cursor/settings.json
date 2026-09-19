@@ -1,0 +1,10 @@
+{
+  "plugins": {
+    "claude-plugins-official/discord": {
+      "enabled": true
+    },
+    "postiz": {
+      "enabled": true
+    }
+  }
+}
