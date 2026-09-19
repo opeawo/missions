@@ -16,6 +16,7 @@ import type { ProductPlan, ProposedMission } from "@/lib/domain/plan";
 import { FormError } from "./FormBanner";
 import { MissionForm } from "./MissionForm";
 import { formatReward } from "@/lib/format";
+import { FIRST_LAUNCH_CREDIT_USD } from "@/lib/site";
 
 const COUNTS = [10, 25, 50, 100] as const;
 const STEPS = ["Reading the product", "Finding developer use cases", "Estimating difficulty", "Planning missions"];
@@ -241,6 +242,7 @@ function ScreenOne({
           Share your product or docs. We’ll figure out what developers should build, who should build
           it, and how to spend your budget.
         </p>
+        <p className="text-label text-accent">${FIRST_LAUNCH_CREDIT_USD} credit on your first launch</p>
       </div>
       <FormError error={error} />
       <div>

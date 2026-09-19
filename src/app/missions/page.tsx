@@ -5,7 +5,10 @@ export default async function MissionsPage() {
   const missions = await listOpenMissions();
   return (
     <div className="container-editorial space-y-8 py-16">
-      <h1 className="text-section">Open missions</h1>
+      <div className="max-w-2xl space-y-3">
+        <h1 className="text-section">Open missions</h1>
+        <p className="text-lead">Browse open projects that match your skills.</p>
+      </div>
       <div className="grid gap-3">
         {missions.length === 0 && <p className="muted text-sm">Nothing open yet.</p>}
         {missions.map((m) => (

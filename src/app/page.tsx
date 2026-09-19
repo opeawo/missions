@@ -2,6 +2,7 @@ import { getProfile } from "@/lib/auth";
 import { listCampaigns, listCompanySubmissions, listMissions, listOpenMissions } from "@/lib/domain";
 import { MissionCard } from "./components/MissionCard";
 import { SubmissionInbox } from "./components/SubmissionInbox";
+import { DeveloperLanding } from "./components/DeveloperLanding";
 import { formatReward } from "@/lib/format";
 import Link from "next/link";
 import { REGION_LABELS, type Region } from "@/lib/pricing";
@@ -74,19 +75,25 @@ export default async function HomePage() {
   }
 
   const open = await listOpenMissions();
-  const heading = profile?.role === "developer" ? "Open missions" : "Missions";
-  return (
-    <div className="container-editorial space-y-8 py-16">
-      <div>
-        <h1 className="text-section">{heading}</h1>
-        <p className="text-lead mt-3">Claim paid technical work. Submit proof. Get USDC on Base.</p>
+
+  if (profile?.role === "developer") {
+    return (
+      <div className="container-editorial space-y-12 py-16 md:py-24">
+        <div>
+          <h1 className="text-section">Open missions</h1>
+          <p className="text-lead mt-3">Browse open projects that match your skills.</p>
+        </div>
+        <div className="grid gap-3">
+          {open.length === 0 && (
+            <p className="text-sm text-muted-foreground">No open missions right now.</p>
+          )}
+          {open.map((m) => (
+            <MissionCard key={m.id} mission={m} />
+          ))}
+        </div>
       </div>
-      <div className="grid gap-3">
-        {open.length === 0 && <p className="muted text-sm">No open missions right now.</p>}
-        {open.map((m) => (
-          <MissionCard key={m.id} mission={m} />
-        ))}
-      </div>
-    </div>
-  );
+    );
+  }
+
+  return <DeveloperLanding featured={open[0] ?? null} />;
 }

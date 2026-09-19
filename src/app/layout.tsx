@@ -26,7 +26,7 @@ const plexMono = IBM_Plex_Mono({
 
 export const metadata: Metadata = {
   title: "Missions",
-  description: "Paid technical work, from agent to USDC.",
+  description: "Get paid to flex your skills.",
 };
 
 export const dynamic = "force-dynamic";
