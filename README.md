@@ -147,11 +147,11 @@ division favours the organization by at most 0.000001 USDC.
 1. Creating a mission provisions its wallet. The organization deposits reward + fee into it.
 2. Publishing calls `fundMission`, which transfers the fee to the master wallet, leaving exactly the
    reward behind, and marks the mission `funded`. Publishing fails with the exact shortfall if the
-   wallet is short.
-3. Approving a submission sends the reward from the mission wallet to the developer and marks the
+    is short.
+3. Approving a submission sends the reward from the mission  to the developer and marks the
    mission `released`.
 
-Because each wallet holds a single mission's money, funding needs no reserved-balance accounting: the
+Because each  holds a single mission's money, funding needs no reserved-balance accounting: the
 wallet balance *is* that mission's escrow. Approval also funds the mission first if it was never
 charged, so the fee is collected on every payout. Funding is idempotent, and claiming the row before
 transferring means concurrent publishes cannot double-charge.
@@ -185,7 +185,7 @@ Every outbound refund is recorded in the `refunds` table for audit, including fa
 - Payouts never run in the browser. Duplicate payouts are blocked by a unique `payments.submission_id`.
 - Failed payouts stay visible; use **Retry payout**.
 
-Default USDC on Base: `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`.
+Default USDC on Base: `0x63f36e5eF1E6a5Ed015ebb7AE43100141eE87e7D`.
 
 ## Deploy
 
